@@ -1,0 +1,36 @@
+{
+  "name": "statute-os",
+  "version": "0.1.0",
+  "description": "Statute OS — Governance-as-Code CLI (Zero-Trust)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "statute": "./bin/statute.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "cli_cmd_list.md",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "lint": "node -c ./bin/statute.mjs"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "execa": "^9.6.0",
+    "inquirer": "^12.9.4",
+    "jscodeshift": "^0.16.0",
+    "ora": "^9.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "vitest": "^1.6.0"
+  }
+}
+
