@@ -2,8 +2,9 @@ import path from "node:path";
 
 import { pathExists, readJson } from "../util/fs.mjs";
 
-export function defaultPreflightConfig() {
-  return {
+export function defaultPreflightConfig({ profile } = {}) {
+  const profileName = String(profile ?? "auto").toLowerCase();
+  const base = {
     pii_columns: [
       "email",
       "e_mail",
@@ -44,16 +45,21 @@ export function defaultPreflightConfig() {
       { name: "conn_string", re: "(?i)(jdbc:|postgresql://|mysql://|snowflake://|mongodb://)" },
     ],
   };
+
+  // Profiles are currently lightweight (same detector engine), but the hook lets us tune tokens over time.
+  if (profileName === "agent") return base;
+  if (profileName === "app") return base;
+  if (profileName === "data") return base;
+  return base;
 }
 
-export async function loadPreflightConfig({ stateDir }) {
+export async function loadPreflightConfig({ stateDir, profile }) {
   const filePath = path.join(stateDir, "preflight.json");
-  if (!(await pathExists(filePath))) return defaultPreflightConfig();
+  if (!(await pathExists(filePath))) return defaultPreflightConfig({ profile });
   try {
     const json = await readJson(filePath);
-    return { ...defaultPreflightConfig(), ...(json ?? {}) };
+    return { ...defaultPreflightConfig({ profile }), ...(json ?? {}) };
   } catch {
-    return defaultPreflightConfig();
+    return defaultPreflightConfig({ profile });
   }
 }
-

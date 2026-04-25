@@ -30,6 +30,29 @@ function detectAiSdks(pkgJson) {
   return ai;
 }
 
+async function detectAiSdksFromPythonFiles(repoRoot) {
+  /** @type {string[]} */
+  const ai = [];
+  const candidates = [path.join(repoRoot, "requirements.txt"), path.join(repoRoot, "pyproject.toml")];
+  for (const f of candidates) {
+    try {
+      const stat = await fs.stat(f);
+      if (stat.size > 256_000) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const txt = await fs.readFile(f, "utf8");
+      const h = txt.toLowerCase();
+      if (h.includes("\nopenai") || h.includes("openai==") || h.includes("openai>") || h.includes("openai<")) ai.push("openai");
+      if (h.includes("anthropic")) ai.push("anthropic");
+      if (h.includes("langchain")) ai.push("langchain");
+      if (h.includes("crewai")) ai.push("crewai");
+      if (h.includes("autogen")) ai.push("autogen");
+    } catch {
+      // ignore
+    }
+  }
+  return Array.from(new Set(ai));
+}
+
 function inferLanguagesFromFiles(files) {
   const exts = new Set(files.map((f) => path.extname(f).slice(1)).filter(Boolean));
   /** @type {string[]} */
@@ -45,11 +68,13 @@ function hasAny(files, predicate) {
   return files.some(predicate);
 }
 
-export async function scanRepo({ repoRoot, stateDir } = {}) {
+export async function scanRepo({ repoRoot, stateDir, profile } = {}) {
   if (!repoRoot) repoRoot = process.cwd();
   const files = await walkFiles(repoRoot);
   const pkgJson = await readPackageJson(repoRoot);
-  const aiSdks = detectAiSdks(pkgJson);
+  const jsAi = detectAiSdks(pkgJson);
+  const pyAi = await detectAiSdksFromPythonFiles(repoRoot);
+  const aiSdks = Array.from(new Set([...jsAi, ...pyAi]));
   const signals = computeSignals({ repoRoot, files, aiSdks });
 
   // Evidence that an audit wrapper is actually used in source (metadata-only output).
@@ -86,10 +111,16 @@ export async function scanRepo({ repoRoot, stateDir } = {}) {
 
   // CODE-AI-LOG-001: LLM calls are audited
   // Heuristic: look for a local audit module OR an audit wrapper usage.
+  const profileName = String(profile ?? "auto").toLowerCase();
+  const aiActive =
+    profileName === "agent" ||
+    (aiSdks ?? []).length > 0 ||
+    signals.hasLangChainUsage ||
+    signals.hasLangChainDep;
   const hasAuditModule = signals.hasAuditModule || signals.hasAuditWrapperUsage;
   findings.push({
     control_id: "CODE-AI-LOG-001",
-    status: hasAuditModule ? "pass" : "fail",
+    status: !aiActive ? "skipped" : hasAuditModule ? "pass" : "fail",
     severity: "high",
     evidence_meta: `audit_present=${hasAuditModule}, audit_usage=${signals.hasAuditWrapperUsage}, ai_sdks=${aiSdks.join("|") || "none"}`,
     artifacts: [],
@@ -99,7 +130,7 @@ export async function scanRepo({ repoRoot, stateDir } = {}) {
   const hasPromptsDir = signals.hasPromptsDir;
   findings.push({
     control_id: "CODE-AI-PROMPT-001",
-    status: hasPromptsDir ? "pass" : "warning",
+    status: !aiActive ? "skipped" : hasPromptsDir ? "pass" : "warning",
     severity: "medium",
     evidence_meta: `prompts_dir=${hasPromptsDir}`,
     artifacts: [],
@@ -117,7 +148,9 @@ export async function scanRepo({ repoRoot, stateDir } = {}) {
   });
 
   // Agent Governance Scanner (ported to local, still metadata-only)
-  findings.push(...(await scanAgentGovernance({ repoRoot, stateDir, signals })));
+  if (aiActive && profileName !== "data") {
+    findings.push(...(await scanAgentGovernance({ repoRoot, stateDir, signals })));
+  }
 
   const project = {
     repo_root_hint: path.basename(repoRoot),
