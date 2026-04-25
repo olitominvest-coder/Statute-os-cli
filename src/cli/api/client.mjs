@@ -113,6 +113,31 @@ export class StatuteApiClient {
     return TemplateSchema.parse(json);
   }
 
+  async listJurisdictions() {
+    this.assertConfigured();
+    if (this.isMock()) {
+      const json = await readJson(path.join(this.mockRoot(), "jurisdictions.json"));
+      return json;
+    }
+    const res = await fetch(`${this.apiUrl}/cli/v1/jurisdictions`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`API_JURISDICTIONS_FAILED:${res.status}`);
+    return await res.json();
+  }
+
+  async getPack(jurisdictionCode) {
+    this.assertConfigured();
+    if (this.isMock()) {
+      const json = await readJson(path.join(this.mockRoot(), "packs", `${jurisdictionCode}.json`));
+      return json;
+    }
+    const res = await fetch(
+      `${this.apiUrl}/cli/v1/packs/${encodeURIComponent(jurisdictionCode)}`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) throw new Error(`API_PACK_FAILED:${res.status}`);
+    return await res.json();
+  }
+
   async getAssessment(assessmentId) {
     this.assertConfigured();
     if (this.isMock()) {

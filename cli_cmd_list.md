@@ -56,6 +56,15 @@ Outputs:
 - `security_diff[]` includes `file` and `file_line_number` when available, plus `table_refs` (best-effort hints; double-check in dynamic codebases)
 See `docs/LOCAL_LLM.md` for local model setup.
 
+### `statute jurisdictions list`
+Lists jurisdiction codes available from the Statute OS server (requires `--api-url` + `--token`).
+
+### `statute pack pull <jurisdiction>`
+Downloads a jurisdiction “pack” (articles + control mappings) from the Statute OS server and caches it to `.statute/packs/<jurisdiction>.json`.
+
+### `statute pack show <jurisdiction>`
+Prints the cached pack JSON.
+
 ### `statute fix`
 Applies a remediation template (AST-safe edits), with rollback + optional git branch, and post-fix audit.
 
