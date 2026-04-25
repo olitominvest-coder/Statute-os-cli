@@ -3,9 +3,18 @@ import { z } from "zod";
 export const PreflightSeveritySchema = z.enum(["CRITICAL", "MEDIUM", "LOW"]);
 export const PreflightViolationTypeSchema = z.enum(["PII Leakage", "Egress", "Logic"]);
 
+export const PreflightTableRefSchema = z.object({
+  name: z.string().min(1),
+  kind: z.enum(["from", "join", "table_call", "spark_sql_literal"]),
+  confidence: z.enum(["high", "medium", "low"]),
+});
+
 export const PreflightDiffItemSchema = z.object({
+  file: z.string().min(1).optional(),
+  file_line_number: z.number().int().nonnegative().optional(),
   line_number: z.number().int().nonnegative(),
   code_snippet: z.string(),
+  table_refs: z.array(PreflightTableRefSchema).optional(),
   severity: PreflightSeveritySchema,
   violation_type: PreflightViolationTypeSchema,
   remediation: z.string(),
@@ -25,4 +34,3 @@ export const PreflightOutputSchema = z.object({
   }),
   nudge: z.string(),
 });
-

@@ -17,6 +17,13 @@ export async function runScan(opts) {
   const stateDir = resolveStateDir(opts.config, cwd);
   const spinner = ora("Scanning (metadata-only)...").start();
 
+  function summarizeFindings(findings) {
+    const relevant = (findings ?? []).filter((f) => f.status === "fail" || f.status === "warning");
+    const fail = relevant.filter((f) => f.status === "fail").length;
+    const warning = relevant.filter((f) => f.status === "warning").length;
+    return { relevant, fail, warning };
+  }
+
   try {
     const state = await loadState(stateDir);
     if (opts.assessmentId) {
@@ -47,6 +54,13 @@ export async function runScan(opts) {
         },
       });
       spinner.succeed(`Preflight complete: ${out.readiness_summary.status} (${out.readiness_summary.score}/100)`);
+
+      const hasTableRefs = out.security_diff?.some((d) => Array.isArray(d.table_refs) && d.table_refs.length > 0);
+      if (hasTableRefs) {
+        console.error(
+          "warning: detected table references are best-effort hints; double-check results (dynamic SQL/macros/ORMs can change actual tables).",
+        );
+      }
 
       await writeJsonAtomic(
         path.join(stateDir, "last-preflight.json"),
@@ -104,7 +118,16 @@ export async function runScan(opts) {
     state.last_scan = result;
     await saveState(stateDir, state);
 
-    spinner.succeed(`Scan complete: ${gaps.length} gap(s) matched.`);
+    const summary = summarizeFindings(result.findings);
+    if (summary.fail === 0 && summary.warning === 0) {
+      spinner.succeed("Scan complete: compliant (all local checks passed).");
+    } else if (gaps.length > 0) {
+      spinner.succeed(
+        `Scan complete: ${summary.fail} fail, ${summary.warning} warning (${gaps.length} mapped gap(s)).`,
+      );
+    } else {
+      spinner.succeed(`Scan complete: ${summary.fail} fail, ${summary.warning} warning.`);
+    }
 
     if (opts.out) {
       const outPath = path.isAbsolute(opts.out) ? opts.out : path.join(cwd, opts.out);
@@ -112,8 +135,23 @@ export async function runScan(opts) {
     }
 
     if (!opts.json) {
-      console.log(`Matched gaps: ${gaps.map((g) => g.gap_id).join(", ") || "none"}`);
-      console.log("Next: run `statute fix`.");
+      if (summary.fail === 0 && summary.warning === 0) {
+        console.log("Compliant: no failing local governance controls detected.");
+      } else {
+        console.log(`Non-compliance: ${summary.fail} fail, ${summary.warning} warning.`);
+        for (const f of summary.relevant) {
+          console.log(`- ${f.control_id} (${f.severity}): ${f.status} — ${f.evidence_meta}`);
+        }
+      }
+
+      if (gaps.length > 0) {
+        console.log(`Mapped gaps: ${gaps.map((g) => g.gap_id).join(", ")}`);
+        console.log("Next: run `statute fix`.");
+      } else if (summary.fail === 0 && summary.warning === 0) {
+        console.log("Next: run `statute fix` (optional).");
+      } else {
+        console.log("Next: sync a manifest (`statute init`) to enable gap IDs and remediations, or inspect failing controls above.");
+      }
     } else {
       console.log(JSON.stringify(result, null, 2));
     }
