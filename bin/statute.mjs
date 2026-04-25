@@ -8,6 +8,8 @@ import { runFix } from "../src/cli/commands/fix.mjs";
 import { runAudit } from "../src/cli/commands/audit.mjs";
 import { runIntegrationsLink } from "../src/cli/commands/integrations-link.mjs";
 import { runLlmInit } from "../src/cli/commands/llm-init.mjs";
+import { runJurisdictionsList } from "../src/cli/commands/jurisdictions.mjs";
+import { runPackPull, runPackShow } from "../src/cli/commands/pack.mjs";
 
 const program = new Command();
 
@@ -130,6 +132,35 @@ program
   .option("--no-branch", "Do not create a new git branch")
   .option("--patch-out <path>", "Path for generated patch file")
   .action(async (opts) => runFix({ ...program.opts(), ...opts }));
+
+const jurisdictions = program
+  .command("jurisdictions")
+  .description("List jurisdictions available from Statute OS");
+
+jurisdictions
+  .command("list")
+  .description("List jurisdictions (requires --api-url and --token)")
+  .action(async (opts) => runJurisdictionsList({ ...program.opts(), ...opts }));
+
+const pack = program
+  .command("pack")
+  .description("Manage cached jurisdiction packs (.statute/packs/)");
+
+pack
+  .command("pull")
+  .description("Download a jurisdiction pack and cache it locally")
+  .argument("<jurisdiction>", "Jurisdiction code (e.g. EU_AI_ACT, GDPR)")
+  .action(async (jurisdiction, opts) =>
+    runPackPull({ ...program.opts(), ...opts, jurisdiction }),
+  );
+
+pack
+  .command("show")
+  .description("Print a cached jurisdiction pack from .statute/packs/")
+  .argument("<jurisdiction>", "Jurisdiction code (e.g. EU_AI_ACT, GDPR)")
+  .action(async (jurisdiction, opts) =>
+    runPackShow({ ...program.opts(), ...opts, jurisdiction }),
+  );
 
 program.on("command:*", () => {
   program.help({ error: true });
