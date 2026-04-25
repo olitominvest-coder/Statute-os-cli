@@ -11,7 +11,7 @@ This repo provides a Zero-Trust “Governance-as-Code” CLI.
 - `--integration-key <key>` Integration profile key (used for `--server` scans)
 - `--local` Force local-only mode (default unless `--server`)
 - `--server` Trigger server-side scans (Databricks/Snowflake/AWS/GCP/Azure) before local audit
-- `--json` JSON-only output (machine readable)
+- `--json` JSON-only output (machine readable). Recommended placement: `statute --json <command> ...`
 - `--debug` Verbose errors
 
 ## Local Workflow (recommended)
@@ -22,7 +22,11 @@ Interactive setup: jurisdictions + risk tier (+ optional assessment id) and mani
 - If `--assessment-id` is provided and `--api-url` is set, the CLI fetches assessment context from the server.
 
 ### `statute scan`
-Local metadata audit of the repo, producing findings and matching Gap IDs.
+Local metadata audit of the repo, producing `findings` (and optionally `gaps`).
+
+Notes:
+- `findings` are the primary compliance signal in local-only mode.
+- `gaps` require a manifest mapping (`statute init` with `--api-url`) or server matching; if you run fully offline without a cached manifest, `gaps` will be empty even when there are non-compliance findings.
 
 Options:
 - `--offline` Don’t call the API (use cached manifest only)
@@ -34,7 +38,7 @@ Databricks Clean Room “Pre-Flight” scan that returns the strict JSON **Secur
 Options:
 - `--preflight` Enable preflight mode (required)
 - `--auto-assess` Use a local SLM/LLM to refine `detected_use_case` + `compliance_prefill`
-- `--llm-provider <provider>` `openai_compat|ollama|lmstudio` (default: `openai_compat`)
+- `--llm-provider <provider>` `openai_compat|ollama|lmstudio|mock`
 - `--llm-url <url>` Local LLM base URL (e.g. LM Studio: `http://127.0.0.1:1234`, Ollama: `http://127.0.0.1:11434`)
 - `--llm-model <model>` Local model name
 - `--llm-send-code` DANGEROUS: opt-in to send raw code to the local model (default off)
@@ -46,7 +50,8 @@ Options:
 Outputs:
 - Writes last result to `.statute/last-preflight.json`
 - With `--json`, prints the Security Diff JSON to stdout
-See `docs/cli/LOCAL_LLM.md` for local model setup.
+- `security_diff[]` includes `file` and `file_line_number` when available, plus `table_refs` (best-effort hints; double-check in dynamic codebases)
+See `docs/LOCAL_LLM.md` for local model setup.
 
 ### `statute fix`
 Applies a remediation template (AST-safe edits), with rollback + optional git branch, and post-fix audit.

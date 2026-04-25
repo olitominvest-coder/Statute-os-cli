@@ -20,6 +20,11 @@ describe("preflight", () => {
       });
       expect(out.readiness_summary.status).toBe("FAIL");
       expect(out.security_diff.length).toBeGreaterThan(0);
+      const first = out.security_diff[0];
+      expect(first.file).toContain("q.sql");
+      expect(first.file_line_number).toBe(1);
+      expect(Array.isArray(first.table_refs)).toBe(true);
+      expect(first.table_refs.some((t) => t.name === "users")).toBe(true);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

@@ -2,14 +2,23 @@
   "name": "statute-os",
   "version": "0.1.0",
   "description": "Statute OS — Governance-as-Code CLI (Zero-Trust)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "bin": {
-    "statute": "./bin/statute.mjs"
+    "statute": "./bin/statute.mjs",
+    "statute-os": "./bin/statute.mjs"
   },
   "engines": {
     "node": ">=20"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/olitominvest-coder/Statute-os-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/olitominvest-coder/Statute-os-cli/issues"
+  },
+  "homepage": "https://github.com/olitominvest-coder/Statute-os-cli#readme",
   "files": [
     "bin/",
     "src/",
@@ -33,4 +42,3 @@
     "vitest": "^1.6.0"
   }
 }
-

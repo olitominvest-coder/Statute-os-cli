@@ -37,13 +37,13 @@ npx statute-os llm init
 ## Run
 
 ```bash
-npx statute-os scan --preflight --auto-assess --json
+npx statute-os --json scan --preflight --auto-assess
 ```
 
 Override on the command line:
 
 ```bash
-npx statute-os scan --preflight --auto-assess --llm-provider lmstudio --llm-url http://127.0.0.1:1234 --llm-model my-model
+npx statute-os --json scan --preflight --auto-assess --llm-provider lmstudio --llm-url http://127.0.0.1:1234 --llm-model my-model
 ```
 
 ## Dangerous Option: Send Raw Code
