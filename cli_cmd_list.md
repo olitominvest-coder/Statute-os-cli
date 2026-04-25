@@ -29,6 +29,9 @@ Notes:
 - `gaps` require a manifest mapping (`statute init` with `--api-url`) or server matching; if you run fully offline without a cached manifest, `gaps` will be empty even when there are non-compliance findings.
 
 Options:
+- `--profile <profile>` One of `auto|agent|data|app` (affects which local controls run and how preflight is tuned)
+- `--fail-on <severity>` Exit non-zero when non-compliance meets/exceeds `low|medium|high|critical` (or `none`)
+- `--format <format>` `text|github` (GitHub Actions annotations; ignored when `--json` is set)
 - `--offline` Don’t call the API (use cached manifest only)
 - `--out <path>` Write scan JSON to file
 

@@ -34,6 +34,17 @@ program
 program
   .command("scan")
   .description("Local metadata audit of code, config, and infrastructure files")
+  .option("--profile <profile>", "Scan profile: auto|agent|data|app", "auto")
+  .option(
+    "--format <format>",
+    "Output format: text|github (ignored when --json is set)",
+    "text",
+  )
+  .option(
+    "--fail-on <severity>",
+    "Exit non-zero when non-compliance at/above: none|low|medium|high|critical",
+    "none",
+  )
   .option(
     "--preflight",
     "Run Databricks Clean Room pre-flight scan (Security Diff JSON)",

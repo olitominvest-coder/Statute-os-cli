@@ -5,10 +5,10 @@ Public, distributable CLI portion of Statute OS (Governance-as-Code).
 ## Quickstart
 
 - Local governance scan (prints non-compliance findings):
-  - `npx statute-os scan --offline`
+  - `npx statute-os scan --offline --profile auto`
 
 - Preflight security diff (machine-readable JSON):
-  - `npx statute-os --json scan --preflight --preflight-path .`
+  - `npx statute-os --json scan --preflight --preflight-path . --profile data`
 - `npx statute-os audit --fix`
 
 ## Docs
