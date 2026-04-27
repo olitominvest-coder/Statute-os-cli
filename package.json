@@ -1,12 +1,12 @@
 {
   "name": "statute-os",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Statute OS — Governance-as-Code CLI (Zero-Trust)",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "statute": "./bin/statute.mjs",
-    "statute-os": "./bin/statute.mjs"
+    "statute": "bin/statute.mjs",
+    "statute-os": "bin/statute.mjs"
   },
   "engines": {
     "node": ">=20"
