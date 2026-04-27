@@ -10,6 +10,8 @@ import { runIntegrationsLink } from "../src/cli/commands/integrations-link.mjs";
 import { runLlmInit } from "../src/cli/commands/llm-init.mjs";
 import { runJurisdictionsList } from "../src/cli/commands/jurisdictions.mjs";
 import { runPackPull, runPackShow } from "../src/cli/commands/pack.mjs";
+import { runExplain } from "../src/cli/commands/explain.mjs";
+import { runBadge } from "../src/cli/commands/badge.mjs";
 
 const program = new Command();
 
@@ -161,6 +163,18 @@ pack
   .action(async (jurisdiction, opts) =>
     runPackShow({ ...program.opts(), ...opts, jurisdiction }),
   );
+
+program
+  .command("explain")
+  .description("Explain a governance gap with regulatory context and remediation steps (free, RAG-powered)")
+  .argument("<gap-id>", "Gap ID to explain (e.g. GAP-EU-001)")
+  .action(async (gapId, opts) => runExplain({ ...program.opts(), ...opts, gapId }));
+
+program
+  .command("badge")
+  .description("Fetch and display the compliance badge for a bound assessment")
+  .option("--readme", "Auto-insert badge into README.md", false)
+  .action(async (opts) => runBadge({ ...program.opts(), ...opts }));
 
 program.on("command:*", () => {
   program.help({ error: true });

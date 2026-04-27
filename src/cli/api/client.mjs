@@ -183,6 +183,56 @@ export class StatuteApiClient {
     return await res.json();
   }
 
+  async explainGap(gapId) {
+    this.assertConfigured();
+    if (this.isMock()) {
+      try {
+        const json = await readJson(path.join(this.mockRoot(), "explain", `${gapId}.json`));
+        return json;
+      } catch {
+        return {
+          gap_id: gapId, plain_english: "Mock explanation.",
+          why_it_matters: "Mock.", incident_example: "Mock incident.",
+          regulatory_refs: [], remediation_steps: ["Step 1", "Step 2", "Step 3"],
+        };
+      }
+    }
+    const res = await fetch(
+      `${this.apiUrl}/cli/v1/explain/${encodeURIComponent(gapId)}`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) throw new Error(`API_EXPLAIN_FAILED:${res.status}`);
+    return await res.json();
+  }
+
+  async getBadge(assessmentId) {
+    this.assertConfigured();
+    if (this.isMock()) {
+      try {
+        const json = await readJson(path.join(this.mockRoot(), "badge.json"));
+        return json;
+      } catch {
+        return {
+          badge_level: "bronze", score: 72, badge_hash: "mock-hash",
+          public_url: "https://example.com/verify/mock-hash",
+          badge_image_url: "https://example.com/api/badges/mock-hash",
+          snippets: {
+            markdown: "[![AI Governance: 72/100 (bronze)](https://example.com/api/badges/mock-hash)](https://example.com/verify/mock-hash)",
+            html: "<a href=\"...\"><img src=\"...\"/></a>",
+          },
+        };
+      }
+    }
+    const url = new URL(`${this.apiUrl}/cli/v1/badge`);
+    url.searchParams.set("assessment_id", assessmentId);
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.message ?? `API_BADGE_FAILED:${res.status}`);
+    }
+    return await res.json();
+  }
+
   async testConnection(connectionId) {
     this.assertConfigured();
     if (this.isMock()) {

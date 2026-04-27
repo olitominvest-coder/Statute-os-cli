@@ -13,6 +13,43 @@ import { loadPreflightConfig } from "../preflight/config.mjs";
 import { writeJsonAtomic } from "../util/fs.mjs";
 import { normalizePreflightSeverity, normalizeScanSeverity, parseFailOn, shouldFail } from "../util/severity.mjs";
 
+// Jurisdictions used when a brand-new user runs `statute scan` with no prior init.
+// Broadest useful default: covers EU AI Act + GDPR which apply to most AI systems globally.
+const BOOTSTRAP_JURISDICTIONS = ["EU_AI_ACT", "GDPR"];
+const BOOTSTRAP_RISK_TIER = "medium";
+
+/**
+ * Auto-bootstrap the manifest on first run (free — uses GET /cli/v1/manifest, no credits).
+ * Saves the result to state so all subsequent runs are instant offline.
+ * Non-fatal: if the API is unreachable we continue without a manifest.
+ */
+async function maybeBootstrapManifest(state, { apiUrl, token, debug, stateDir, spinner }) {
+  if (state.manifest) return; // already have one — nothing to do
+  if (!apiUrl || !token) return; // no credentials — can't fetch
+
+  const jurisdictions = state.context?.jurisdictions?.length
+    ? state.context.jurisdictions
+    : BOOTSTRAP_JURISDICTIONS;
+  const riskTier = state.context?.risk_tier ?? BOOTSTRAP_RISK_TIER;
+
+  spinner.text = `First run — syncing manifest (${jurisdictions.join(" · ")})...`;
+
+  try {
+    const api = new StatuteApiClient({ apiUrl, token, debug, stateDir });
+    const manifest = await api.getManifest({ jurisdictions, riskTier });
+
+    state.manifest = manifest;
+    state.api_url = apiUrl;
+    state.context = { ...state.context, jurisdictions, risk_tier: riskTier };
+    await saveState(stateDir, state);
+
+    spinner.text = `Manifest synced (${manifest.mappings.length} controls). Scanning...`;
+  } catch (err) {
+    if (debug) console.error("[bootstrap]", err);
+    spinner.text = "Scanning (metadata-only)...";
+  }
+}
+
 export async function runScan(opts) {
   const cwd = process.cwd();
   const stateDir = resolveStateDir(opts.config, cwd);
@@ -132,14 +169,27 @@ export async function runScan(opts) {
     }
 
     const apiUrl = opts.apiUrl ?? state.api_url ?? null;
+
+    // Bootstrap manifest on first run (free, no credits, saves for all future runs).
+    if (!opts.offline) {
+      await maybeBootstrapManifest(state, {
+        apiUrl,
+        token: opts.token,
+        debug: opts.debug,
+        stateDir,
+        spinner,
+      });
+    }
+
+    spinner.text = "Scanning (metadata-only)...";
     const scan = await scanRepo({ repoRoot: cwd, stateDir, profile });
     const manifest = state.manifest ?? null;
 
     // Offline match (preferred zero-trust default)
     let gaps = matchFindingsToGapIds(scan.findings, manifest);
 
-    // Optional online match when manifest missing or user requests freshness
-    if (!opts.offline && (gaps.length === 0 || !manifest) && apiUrl) {
+    // Online match: only fall back to the paid endpoint if manifest exists but still no gaps.
+    if (!opts.offline && gaps.length === 0 && manifest && apiUrl) {
       const api = new StatuteApiClient({
         apiUrl,
         token: opts.token,
