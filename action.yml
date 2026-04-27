@@ -1,0 +1,200 @@
+name: 'Statute OS — AI Governance Scan'
+description: 'Scan your AI system codebase for regulatory compliance gaps and fail PRs that introduce new governance violations.'
+author: 'Statute OS'
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  token:
+    description: 'Statute OS API token. Required for online mode (manifest sync + server-side matching). Omit for fully offline scans.'
+    required: false
+  api-url:
+    description: 'Statute OS API base URL.'
+    required: false
+    default: 'https://app.statuteos.ai'
+  assessment-id:
+    description: 'Assessment UUID to bind this scan run. Recommended for traceability.'
+    required: false
+  fail-on:
+    description: 'Fail the workflow if any gap at or above this severity is detected: critical | high | medium | low | never'
+    required: false
+    default: 'high'
+  offline:
+    description: 'Force offline mode — use the cached .statute/manifest.json only. Free, no credits consumed. Preflight is always free regardless of this flag.'
+    required: false
+    default: 'false'
+  version:
+    description: 'statute-os npm package version to use (defaults to latest).'
+    required: false
+    default: 'latest'
+
+outputs:
+  gap-count:
+    description: 'Total number of matched governance gaps.'
+    value: ${{ steps.parse.outputs.gap-count }}
+  finding-count:
+    description: 'Total number of scan findings (pass + fail + warning).'
+    value: ${{ steps.parse.outputs.finding-count }}
+  has-critical:
+    description: 'true if any critical-severity gap was detected.'
+    value: ${{ steps.parse.outputs.has-critical }}
+  scan-status:
+    description: 'pass | fail | error'
+    value: ${{ steps.parse.outputs.scan-status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run governance scan
+      id: scan
+      shell: bash
+      env:
+        STATUTE_API_URL: ${{ inputs.api-url }}
+        STATUTE_API_TOKEN: ${{ inputs.token }}
+      run: |
+        set +e  # don't exit on scan errors — we parse exit code ourselves
+
+        ARGS="--json"
+
+        if [ "${{ inputs.offline }}" = "true" ] || [ -z "${{ inputs.token }}" ]; then
+          ARGS="$ARGS --offline"
+        fi
+
+        if [ -n "${{ inputs.assessment-id }}" ]; then
+          ARGS="$ARGS --assessment-id ${{ inputs.assessment-id }}"
+        fi
+
+        if [ -n "${{ inputs.api-url }}" ] && [ "${{ inputs.offline }}" != "true" ]; then
+          ARGS="$ARGS --api-url ${{ inputs.api-url }}"
+        fi
+
+        echo "Running: npx --yes statute-os@${{ inputs.version }} scan $ARGS"
+        npx --yes statute-os@${{ inputs.version }} scan $ARGS > .statute-scan.json 2>.statute-scan-err.txt
+        SCAN_EXIT=$?
+
+        if [ $SCAN_EXIT -ne 0 ] && [ ! -s .statute-scan.json ]; then
+          echo "::error::Statute OS scan failed to produce output. Check your token and API URL."
+          cat .statute-scan-err.txt >&2
+          echo "SCAN_FAILED=true" >> "$GITHUB_ENV"
+        fi
+
+    - name: Parse scan results
+      id: parse
+      shell: bash
+      run: |
+        if [ "${SCAN_FAILED}" = "true" ] || [ ! -f .statute-scan.json ] || [ ! -s .statute-scan.json ]; then
+          echo "gap-count=0"       >> "$GITHUB_OUTPUT"
+          echo "finding-count=0"   >> "$GITHUB_OUTPUT"
+          echo "has-critical=false" >> "$GITHUB_OUTPUT"
+          echo "scan-status=error" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        node - <<'JSEOF'
+        const fs = require('fs');
+        const raw = fs.readFileSync('.statute-scan.json', 'utf8');
+        let result;
+        try { result = JSON.parse(raw); } catch { result = {}; }
+
+        const gaps     = result.gaps     ?? [];
+        const findings = result.findings ?? [];
+
+        const gapCount      = gaps.length;
+        const findingCount  = findings.length;
+        const hasCritical   = findings.some(f => f.status === 'fail' && f.severity === 'critical');
+
+        const out = process.env.GITHUB_OUTPUT;
+        const append = line => fs.appendFileSync(out, line + '\n');
+
+        append(`gap-count=${gapCount}`);
+        append(`finding-count=${findingCount}`);
+        append(`has-critical=${hasCritical}`);
+        append(`scan-status=${gapCount === 0 ? 'pass' : 'fail'}`);
+
+        // Print a summary table to the step log
+        console.log(`\n── Statute OS Governance Scan Results ──`);
+        console.log(`  Gaps detected:  ${gapCount}`);
+        console.log(`  Total findings: ${findingCount}`);
+        if (hasCritical) console.log(`  ⚠️  Critical gaps present`);
+        if (gaps.length > 0) {
+          console.log(`\n  Gap ID                        Control ID`);
+          gaps.slice(0, 10).forEach(g =>
+            console.log(`  ${String(g.gap_id).padEnd(30)}  ${g.control_id}`)
+          );
+          if (gaps.length > 10) console.log(`  … and ${gaps.length - 10} more`);
+        }
+        JSEOF
+
+    - name: Annotate PR (summary)
+      if: github.event_name == 'pull_request'
+      shell: bash
+      run: |
+        GAP_COUNT="${{ steps.parse.outputs.gap-count }}"
+        HAS_CRITICAL="${{ steps.parse.outputs.has-critical }}"
+
+        if [ "$GAP_COUNT" = "0" ]; then
+          ICON="✅"
+          HEADLINE="No governance gaps detected"
+        elif [ "$HAS_CRITICAL" = "true" ]; then
+          ICON="🚨"
+          HEADLINE="${GAP_COUNT} governance gap(s) — critical severity present"
+        else
+          ICON="⚠️"
+          HEADLINE="${GAP_COUNT} governance gap(s) detected"
+        fi
+
+        cat >> $GITHUB_STEP_SUMMARY << SUMMARY
+        ## ${ICON} Statute OS — AI Governance Scan
+
+        **${HEADLINE}**
+
+        | Metric | Value |
+        |---|---|
+        | Gaps detected | ${GAP_COUNT} |
+        | Critical gaps | ${{ steps.parse.outputs.has-critical }} |
+        | Fail threshold | ${{ inputs.fail-on }} |
+
+        > Run \`npx statute-os explain <gap-id>\` locally to understand any gap in detail.
+        > Run \`npx statute-os fix\` to apply AST-safe codemods.
+        SUMMARY
+
+    - name: Enforce fail threshold
+      id: enforce
+      shell: bash
+      run: |
+        FAIL_ON="${{ inputs.fail-on }}"
+        if [ "$FAIL_ON" = "never" ]; then
+          echo "Fail threshold: never — skipping enforcement."
+          exit 0
+        fi
+        if [ ! -f .statute-scan.json ] || [ ! -s .statute-scan.json ]; then
+          echo "::warning::No scan results to enforce against."
+          exit 0
+        fi
+
+        node - <<JSEOF
+        const fs = require('fs');
+        let result;
+        try { result = JSON.parse(fs.readFileSync('.statute-scan.json', 'utf8')); } catch { process.exit(0); }
+
+        const SEVERITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 };
+        const failOn         = '${{ inputs.fail-on }}';
+        const threshold      = SEVERITY_ORDER[failOn] ?? 3;
+
+        const blockers = (result.findings ?? []).filter(f =>
+          f.status === 'fail' && (SEVERITY_ORDER[f.severity] ?? 0) >= threshold
+        );
+
+        if (blockers.length > 0) {
+          console.error(\`\n❌ Statute OS: \${blockers.length} governance violation(s) at or above "\${failOn}" severity:\`);
+          blockers.forEach(b =>
+            console.error(\`   • \${b.control_id} (\${b.severity}): \${b.evidence_meta ?? ''}\`)
+          );
+          console.error(\`\nRun \\\`npx statute-os explain <gap-id>\\\` to understand each gap.\`);
+          console.error(\`Run \\\`npx statute-os fix\\\` to apply automated remediations.\`);
+          process.exit(1);
+        } else {
+          console.log(\`✅ No gaps at or above "\${failOn}" severity.\`);
+        }
+        JSEOF
