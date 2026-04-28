@@ -9,7 +9,7 @@
     "statute-os": "bin/statute.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "repository": {
     "type": "git",
@@ -31,11 +31,11 @@
     "lint": "node -c ./bin/statute.mjs"
   },
   "dependencies": {
-    "commander": "^14.0.0",
-    "execa": "^9.6.0",
+    "commander": "^13.1.0",
+    "execa": "^9.0.2",
     "inquirer": "^12.9.4",
     "jscodeshift": "^0.16.0",
-    "ora": "^9.0.0",
+    "ora": "^8.1.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

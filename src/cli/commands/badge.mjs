@@ -110,7 +110,8 @@ export async function runBadge(opts) {
     spinner.fail("Badge fetch failed.");
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("404") || msg.includes("No active badge")) {
-      console.error("No active badge found. Issue one from the Statute OS dashboard first.");
+      console.error("No active badge found. Issue one from the Statute OS dashboard first:");
+      console.error(`  ${(await loadState(resolveStateDir(opts.config, process.cwd()))).api_url ?? ""}`);
     } else if (opts.debug) {
       console.error(err);
     } else {

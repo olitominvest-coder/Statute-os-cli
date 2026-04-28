@@ -11,28 +11,36 @@ This repo provides a Zero-Trust “Governance-as-Code” CLI.
 - `--integration-key <key>` Integration profile key (used for `--server` scans)
 - `--local` Force local-only mode (default unless `--server`)
 - `--server` Trigger server-side scans (Databricks/Snowflake/AWS/GCP/Azure) before local audit
-- `--json` JSON-only output (machine readable). Recommended placement: `statute --json <command> ...`
+- `--json` JSON-only output (machine readable)
 - `--debug` Verbose errors
 
 ## Local Workflow (recommended)
 
+### Quick start (no `init` required)
+
+```bash
+export STATUTE_API_URL=https://app.statuteos.ai
+export STATUTE_API_TOKEN=<your-token>
+npx statute-os scan
+```
+
+`statute scan` auto-bootstraps the manifest on first run (EU AI Act + GDPR defaults, free, no credits).
+The manifest is saved to `.statute/config.json` — every subsequent run is instant and offline.
+
 ### `statute init`
-Interactive setup: jurisdictions + risk tier (+ optional assessment id) and manifest sync.
+Optional interactive setup: choose jurisdictions, risk tier, assessment ID, and API URL.
+Use this to override the auto-bootstrap defaults or bind a specific assessment.
 
 - If `--assessment-id` is provided and `--api-url` is set, the CLI fetches assessment context from the server.
 
 ### `statute scan`
-Local metadata audit of the repo, producing `findings` (and optionally `gaps`).
+Local metadata audit of the repo, producing findings and matching Gap IDs.
 
-Notes:
-- `findings` are the primary compliance signal in local-only mode.
-- `gaps` require a manifest mapping (`statute init` with `--api-url`) or server matching; if you run fully offline without a cached manifest, `gaps` will be empty even when there are non-compliance findings.
+On first run (no manifest cached), auto-syncs the manifest using EU AI Act + GDPR defaults.
+No manifest call is made on subsequent runs — fully offline and instant.
 
 Options:
-- `--profile <profile>` One of `auto|agent|data|app` (affects which local controls run and how preflight is tuned)
-- `--fail-on <severity>` Exit non-zero when non-compliance meets/exceeds `low|medium|high|critical` (or `none`)
-- `--format <format>` `text|github` (GitHub Actions annotations; ignored when `--json` is set)
-- `--offline` Don’t call the API (use cached manifest only)
+- `--offline` Skip auto-bootstrap and use cached manifest only
 - `--out <path>` Write scan JSON to file
 
 ### `statute scan --preflight`
@@ -41,7 +49,7 @@ Databricks Clean Room “Pre-Flight” scan that returns the strict JSON **Secur
 Options:
 - `--preflight` Enable preflight mode (required)
 - `--auto-assess` Use a local SLM/LLM to refine `detected_use_case` + `compliance_prefill`
-- `--llm-provider <provider>` `openai_compat|ollama|lmstudio|mock`
+- `--llm-provider <provider>` `openai_compat|ollama|lmstudio` (default: `openai_compat`)
 - `--llm-url <url>` Local LLM base URL (e.g. LM Studio: `http://127.0.0.1:1234`, Ollama: `http://127.0.0.1:11434`)
 - `--llm-model <model>` Local model name
 - `--llm-send-code` DANGEROUS: opt-in to send raw code to the local model (default off)
@@ -53,17 +61,7 @@ Options:
 Outputs:
 - Writes last result to `.statute/last-preflight.json`
 - With `--json`, prints the Security Diff JSON to stdout
-- `security_diff[]` includes `file` and `file_line_number` when available, plus `table_refs` (best-effort hints; double-check in dynamic codebases)
-See `docs/LOCAL_LLM.md` for local model setup.
-
-### `statute jurisdictions list`
-Lists jurisdiction codes available from the Statute OS server (requires `--api-url` + `--token`).
-
-### `statute pack pull <jurisdiction>`
-Downloads a jurisdiction “pack” (articles + control mappings) from the Statute OS server and caches it to `.statute/packs/<jurisdiction>.json`.
-
-### `statute pack show <jurisdiction>`
-Prints the cached pack JSON.
+See `docs/cli/LOCAL_LLM.md` for local model setup.
 
 ### `statute fix`
 Applies a remediation template (AST-safe edits), with rollback + optional git branch, and post-fix audit.

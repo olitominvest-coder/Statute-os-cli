@@ -11,7 +11,6 @@ import { CLI_CONTRACT_VERSION } from "../contracts.mjs";
 import { runPreflight } from "../preflight/engine.mjs";
 import { loadPreflightConfig } from "../preflight/config.mjs";
 import { writeJsonAtomic } from "../util/fs.mjs";
-import { normalizePreflightSeverity, normalizeScanSeverity, parseFailOn, shouldFail } from "../util/severity.mjs";
 
 // Jurisdictions used when a brand-new user runs `statute scan` with no prior init.
 // Broadest useful default: covers EU AI Act + GDPR which apply to most AI systems globally.
@@ -21,11 +20,11 @@ const BOOTSTRAP_RISK_TIER = "medium";
 /**
  * Auto-bootstrap the manifest on first run (free — uses GET /cli/v1/manifest, no credits).
  * Saves the result to state so all subsequent runs are instant offline.
- * Non-fatal: if the API is unreachable we continue without a manifest.
+ * Non-fatal: if the API is unreachable we continue; gaps will be empty but the scan still runs.
  */
 async function maybeBootstrapManifest(state, { apiUrl, token, debug, stateDir, spinner }) {
   if (state.manifest) return; // already have one — nothing to do
-  if (!apiUrl || !token) return; // no credentials — can't fetch
+  if (!apiUrl || !token) return; // no credentials — can't fetch, will hint user at end
 
   const jurisdictions = state.context?.jurisdictions?.length
     ? state.context.jurisdictions
@@ -45,6 +44,7 @@ async function maybeBootstrapManifest(state, { apiUrl, token, debug, stateDir, s
 
     spinner.text = `Manifest synced (${manifest.mappings.length} controls). Scanning...`;
   } catch (err) {
+    // Non-fatal: proceed without manifest; gaps will be empty but scan output is still useful.
     if (debug) console.error("[bootstrap]", err);
     spinner.text = "Scanning (metadata-only)...";
   }
@@ -54,25 +54,6 @@ export async function runScan(opts) {
   const cwd = process.cwd();
   const stateDir = resolveStateDir(opts.config, cwd);
   const spinner = ora("Scanning (metadata-only)...").start();
-  const format = String(opts.format ?? "text").toLowerCase();
-  const failOn = parseFailOn(opts.failOn);
-  const profile = String(opts.profile ?? "auto").toLowerCase();
-
-  function summarizeFindings(findings) {
-    const relevant = (findings ?? []).filter((f) => f.status === "fail" || f.status === "warning");
-    const fail = relevant.filter((f) => f.status === "fail").length;
-    const warning = relevant.filter((f) => f.status === "warning").length;
-    return { relevant, fail, warning };
-  }
-
-  function githubAnnot({ level, title, message, file, line }) {
-    const clean = String(message ?? "").replace(/\r?\n/g, " ").slice(0, 2000);
-    const t = title ? ` title=${String(title).replace(/[,:\n\r]/g, " ").slice(0, 256)}` : "";
-    const f = file ? `,file=${file}` : "";
-    const l = line ? `,line=${line}` : "";
-    const kind = level === "error" ? "error" : "warning";
-    console.log(`::${kind}${t}${f}${l}::${clean}`);
-  }
 
   try {
     const state = await loadState(stateDir);
@@ -83,7 +64,7 @@ export async function runScan(opts) {
 
     if (opts.preflight) {
       spinner.text = "Running preflight (Databricks Clean Room)...";
-      const cfg = await loadPreflightConfig({ stateDir, profile });
+      const cfg = await loadPreflightConfig({ stateDir });
       const targetPath = opts.preflightPath ?? cwd;
       const allowedPrefixes =
         (opts.allowedPrefix?.length ? opts.allowedPrefix : null) ??
@@ -105,17 +86,6 @@ export async function runScan(opts) {
       });
       spinner.succeed(`Preflight complete: ${out.readiness_summary.status} (${out.readiness_summary.score}/100)`);
 
-      const hasTableRefs = out.security_diff?.some((d) => Array.isArray(d.table_refs) && d.table_refs.length > 0);
-      const bestEffortMsg =
-        "Detected table references are best-effort hints; double-check results (dynamic SQL/macros/ORMs can change actual tables).";
-      if (hasTableRefs && !opts.json) {
-        if (format === "github") {
-          githubAnnot({ level: "warning", title: "Best-effort table refs", message: bestEffortMsg });
-        } else {
-          console.error(`warning: ${bestEffortMsg}`);
-        }
-      }
-
       await writeJsonAtomic(
         path.join(stateDir, "last-preflight.json"),
         { ...out, generated_at: new Date().toISOString() },
@@ -126,35 +96,9 @@ export async function runScan(opts) {
         await fs.writeFile(outPath, JSON.stringify(out, null, 2) + "\n", "utf8");
       }
 
-      const worst = out.security_diff.reduce((acc, d) => {
-        const sev = normalizePreflightSeverity(d.severity);
-        return acc && acc.rank >= (sev === "critical" ? 4 : sev === "high" ? 3 : sev === "medium" ? 2 : 1)
-          ? acc
-          : { sev, rank: sev === "critical" ? 4 : sev === "high" ? 3 : sev === "medium" ? 2 : 1 };
-      }, /** @type {{sev: string, rank: number} | null} */ (null));
-      if (shouldFail({ worstSeverity: worst?.sev ?? "none", failOn })) process.exitCode = 1;
-
       if (opts.json) {
         console.log(JSON.stringify(out, null, 2));
       } else {
-        if (format === "github") {
-          for (const d of out.security_diff) {
-            const sev = normalizePreflightSeverity(d.severity);
-            const level = sev === "critical" ? "error" : "warning";
-            const relFile =
-              d.file && path.isAbsolute(d.file) && d.file.startsWith(cwd) ? path.relative(cwd, d.file) : d.file;
-            const msg = `${d.violation_type}: ${d.code_snippet}`.slice(0, 1000);
-            githubAnnot({
-              level,
-              title: `Preflight ${d.violation_type}`,
-              message: msg,
-              file: relFile || undefined,
-              line: d.file_line_number || undefined,
-            });
-          }
-          return;
-        }
-
         const worst = out.security_diff[0];
         if (worst) {
           console.log(
@@ -182,28 +126,23 @@ export async function runScan(opts) {
     }
 
     spinner.text = "Scanning (metadata-only)...";
-    const scan = await scanRepo({ repoRoot: cwd, stateDir, profile });
-    const manifest = state.manifest ?? null;
+    const scan = await scanRepo({ repoRoot: cwd, stateDir });
 
-    // Offline match (preferred zero-trust default)
-    let gaps = matchFindingsToGapIds(scan.findings, manifest);
+    // Offline match against manifest (instant, zero-trust, no credits).
+    let gaps = matchFindingsToGapIds(scan.findings, state.manifest ?? null);
 
-    // Online match: only fall back to the paid endpoint if manifest exists but still no gaps.
-    if (!opts.offline && gaps.length === 0 && manifest && apiUrl) {
-      const api = new StatuteApiClient({
-        apiUrl,
-        token: opts.token,
-        debug: opts.debug,
-        stateDir,
-      });
+    // Online match: only fall back to the paid match endpoint if we still have no gaps
+    // after a manifest exists. This is now rare — typically only when control_ids don't
+    // map in the cached manifest (e.g., project uses a jurisdiction not in defaults).
+    if (!opts.offline && gaps.length === 0 && state.manifest && apiUrl) {
+      const api = new StatuteApiClient({ apiUrl, token: opts.token, debug: opts.debug, stateDir });
       await api.assertHasScanCredits();
-      const requestBody = {
+      const res = await api.match({
         schema_version: CLI_CONTRACT_VERSION,
         context: state.context,
         project: scan.project,
         findings: scan.findings,
-      };
-      const res = await api.match(requestBody);
+      });
       gaps = res.gaps;
     }
 
@@ -211,23 +150,7 @@ export async function runScan(opts) {
     state.last_scan = result;
     await saveState(stateDir, state);
 
-    const summary = summarizeFindings(result.findings);
-    const worstFindingSeverity = summary.relevant.reduce((acc, f) => {
-      const sev = normalizeScanSeverity(f.severity);
-      const rank = sev === "critical" ? 4 : sev === "high" ? 3 : sev === "medium" ? 2 : 1;
-      return acc && acc.rank >= rank ? acc : { sev, rank };
-    }, /** @type {{sev: string, rank: number} | null} */ (null));
-    if (shouldFail({ worstSeverity: worstFindingSeverity?.sev ?? "none", failOn })) process.exitCode = 1;
-
-    if (summary.fail === 0 && summary.warning === 0) {
-      spinner.succeed("Scan complete: compliant (all local checks passed).");
-    } else if (gaps.length > 0) {
-      spinner.succeed(
-        `Scan complete: ${summary.fail} fail, ${summary.warning} warning (${gaps.length} mapped gap(s)).`,
-      );
-    } else {
-      spinner.succeed(`Scan complete: ${summary.fail} fail, ${summary.warning} warning.`);
-    }
+    spinner.succeed(`Scan complete: ${gaps.length} gap(s) matched.`);
 
     if (opts.out) {
       const outPath = path.isAbsolute(opts.out) ? opts.out : path.join(cwd, opts.out);
@@ -235,43 +158,16 @@ export async function runScan(opts) {
     }
 
     if (!opts.json) {
-      if (format === "github") {
-        if (summary.fail === 0 && summary.warning === 0) {
-          githubAnnot({
-            level: "warning",
-            title: "Statute scan",
-            message: "Compliant: no failing local governance controls detected.",
-          });
-          return;
-        }
-        for (const f of summary.relevant) {
-          const sev = normalizeScanSeverity(f.severity);
-          const level = f.status === "fail" && (sev === "high" || sev === "critical") ? "error" : "warning";
-          githubAnnot({
-            level,
-            title: `${f.control_id} (${f.status})`,
-            message: `${f.severity}: ${f.evidence_meta}`,
-          });
-        }
-        return;
-      }
-
-      if (summary.fail === 0 && summary.warning === 0) {
-        console.log("Compliant: no failing local governance controls detected.");
-      } else {
-        console.log(`Non-compliance: ${summary.fail} fail, ${summary.warning} warning.`);
-        for (const f of summary.relevant) {
-          console.log(`- ${f.control_id} (${f.severity}): ${f.status} — ${f.evidence_meta}`);
-        }
-      }
-
       if (gaps.length > 0) {
-        console.log(`Mapped gaps: ${gaps.map((g) => g.gap_id).join(", ")}`);
-        console.log("Next: run `statute fix`.");
-      } else if (summary.fail === 0 && summary.warning === 0) {
-        console.log("Next: run `statute fix` (optional).");
+        console.log(`Matched gaps: ${gaps.map((g) => g.gap_id).join(", ")}`);
+        console.log("Next: run `statute fix` to apply a codemod, or `statute explain <gap-id>` to understand a gap.");
+      } else if (!state.manifest) {
+        // Couldn't bootstrap (no credentials) — explain why gaps are empty.
+        console.log("No gaps matched (no manifest). To enable gap detection:");
+        console.log("  1. Set STATUTE_API_URL and STATUTE_API_TOKEN, then re-run.");
+        console.log("  2. Or run `statute init` to configure interactively.");
       } else {
-        console.log("Next: sync a manifest (`statute init`) to enable gap IDs and remediations, or inspect failing controls above.");
+        console.log("No governance gaps detected. Your codebase looks clean for the scanned controls.");
       }
     } else {
       console.log(JSON.stringify(result, null, 2));
