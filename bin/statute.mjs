@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import process from "node:process";
+import { readFile } from "node:fs/promises";
 
 import { runInit } from "../src/cli/commands/init.mjs";
 import { runScan } from "../src/cli/commands/scan.mjs";
@@ -14,9 +15,13 @@ import { runExplain } from "../src/cli/commands/explain.mjs";
 import { runBadge } from "../src/cli/commands/badge.mjs";
 
 const program = new Command();
+const pkg = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+);
 
 program
   .name("statute")
+  .version(pkg.version)
   .description("Statute OS — Governance-as-Code CLI (Zero-Trust)")
   .option("--api-url <url>", "Statute OS API base URL", process.env.STATUTE_API_URL)
   .option("--token <token>", "Statute OS API token", process.env.STATUTE_API_TOKEN)
