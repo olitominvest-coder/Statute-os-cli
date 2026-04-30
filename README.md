@@ -16,11 +16,35 @@ This repo contains the public, distributable CLI portion of Statute OS.
 
 ## Quickstart
 
-Run a local scan (offline):
+### Offline Mode (No Authentication Required)
 
 ```bash
 npx --yes statute-os scan --offline --profile auto
 ```
+
+### With Server Integration (Requires Token)
+
+1. **Get your auth token:**
+   - Go to https://statuteos.thyneconsulting.com/
+   - Sign in or create a free account
+   - Go to **Settings** → **API** → **CLI Token**
+   - Copy your token
+
+2. **Initialize CLI:**
+   ```bash
+   npx --yes statute-os init
+   ```
+   - Paste your API URL: `https://statuteos.thyneconsulting.com`
+   - Paste your token when prompted
+
+3. **Run with server:**
+   ```bash
+   npx --yes statute-os scan
+   npx --yes statute-os badge
+   npx --yes statute-os explain <gapId>
+   ```
+
+### Other Examples
 
 Fail CI on high+ severity non-compliance:
 
@@ -56,7 +80,7 @@ Prereqs: Node.js `>=20`.
 
 This repo ships a composite GitHub Action (`action.yml`) you can use to scan PRs.
 
-Example workflow step:
+Example workflow step (with server integration):
 
 ```yaml
 - name: Statute OS scan
